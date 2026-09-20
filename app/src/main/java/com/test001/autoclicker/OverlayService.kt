@@ -40,6 +40,7 @@ class OverlayService : Service() {
     private var recLp: WindowManager.LayoutParams? = null
     @Volatile private var injecting = false
     private var panelRect = android.graphics.Rect()
+    private var bubbleRect = android.graphics.Rect()
     private val prefs by lazy { getSharedPreferences("test001", MODE_PRIVATE) }
     private var lastGesture: Gesture? = null
     private var status: TextView? = null
@@ -70,6 +71,8 @@ class OverlayService : Service() {
 
     /** Collapse the panel into a tiny draggable bubble. Tap = restore. Long-press = stop service. */
     private fun collapseToBubble() {
+        try { (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager)
+            .hideSoftInputFromWindow(panel?.windowToken, 0) } catch (_: Throwable) {}
         try { panel?.let { wm.removeView(it) } } catch (_: Throwable) {}
         panel = null
         if (bubble != null) return
@@ -98,13 +101,20 @@ class OverlayService : Service() {
                         if (Math.abs(nx - sx) > 14 || Math.abs(ny - sy) > 14) moved = true
                         lp.x = nx; lp.y = ny
                         try { wm.updateViewLayout(v, lp) } catch (_: Throwable) {}
+                        val loc = IntArray(2); v.getLocationOnScreen(loc)
+                        bubbleRect.set(loc[0], loc[1], loc[0] + v.width, loc[1] + v.height)
                     }
                     MotionEvent.ACTION_UP -> { if (!moved) restorePanel() }
                 }
                 return false  // let long-click fire
             }
         })
-        try { wm.addView(b, lp); bubble = b } catch (_: Throwable) {}
+        try { wm.addView(b, lp); bubble = b
+            b.post {
+                val loc = IntArray(2); b.getLocationOnScreen(loc)
+                bubbleRect.set(loc[0], loc[1], loc[0] + b.width, loc[1] + b.height)
+            }
+        } catch (_: Throwable) {}
     }
 
     private fun restorePanel() {
@@ -125,6 +135,23 @@ class OverlayService : Service() {
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT
         ).apply { gravity = Gravity.TOP or Gravity.START; x = 40; y = 120 }
+
+        // Keyboard fix: the panel must be focusable while an EditText is being edited,
+        // otherwise the IME never appears for overlay windows.
+        val imm = getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+        fun makeFocusable(f: Boolean) {
+            lp.flags = if (f)
+                (lp.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv())
+            else
+                (lp.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)
+            try { wm.updateViewLayout(v, lp) } catch (_: Throwable) {}
+        }
+        val focusWatcher = View.OnFocusChangeListener { view, has ->
+            makeFocusable(has)
+            if (has) imm.showSoftInput(view, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+        }
+        v.findViewById<EditText>(R.id.ov_loops).onFocusChangeListener = focusWatcher
+        v.findViewById<EditText>(R.id.ov_speed).onFocusChangeListener = focusWatcher
 
         status = v.findViewById(R.id.ov_status)
         val savedLabel = v.findViewById<TextView>(R.id.ov_saved)
@@ -244,6 +271,7 @@ class OverlayService : Service() {
             override fun onTouchEvent(e: MotionEvent): Boolean {
                 if (injecting) return true   // swallow leftovers while mirror is replaying
                 if (panelRect.contains(e.rawX.toInt(), e.rawY.toInt())) return false  // panel taps aren't part of the gesture
+                if (bubbleRect.contains(e.rawX.toInt(), e.rawY.toInt())) return false
                 GestureRecorder.onEvent(e)
                 when (e.actionMasked) {
                     MotionEvent.ACTION_DOWN -> { dT0 = e.eventTime; path.reset(); path.moveTo(e.x, e.y) }
