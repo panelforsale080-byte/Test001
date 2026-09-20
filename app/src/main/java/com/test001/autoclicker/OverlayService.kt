@@ -35,6 +35,7 @@ class OverlayService : Service() {
 
     private lateinit var wm: WindowManager
     private var panel: View? = null
+    private var bubble: View? = null
     private var recLayer: View? = null
     private var lastGesture: Gesture? = null
     private var status: TextView? = null
@@ -58,8 +59,54 @@ class OverlayService : Service() {
     override fun onDestroy() {
         removeRecLayer()
         try { panel?.let { wm.removeView(it) } } catch (_: Throwable) {}
-        panel = null
+        try { bubble?.let { wm.removeView(it) } } catch (_: Throwable) {}
+        panel = null; bubble = null
         super.onDestroy()
+    }
+
+    /** Collapse the panel into a tiny draggable bubble. Tap = restore. Long-press = stop service. */
+    private fun collapseToBubble() {
+        try { panel?.let { wm.removeView(it) } } catch (_: Throwable) {}
+        panel = null
+        if (bubble != null) return
+        val b = TextView(this).apply {
+            text = "T1"; textSize = 13f; setTextColor(0xFFFFFFFF.toInt())
+            gravity = Gravity.CENTER
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.OVAL
+                setColor(0xDD6B4DBB.toInt())
+            }
+        }
+        val lp = WindowManager.LayoutParams(120, 120,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE, PixelFormat.TRANSLUCENT
+        ).apply { gravity = Gravity.TOP or Gravity.START; x = 30; y = 200 }
+        b.setOnTouchListener(object : View.OnTouchListener {
+            var sx = 0; var sy = 0; var px = 0f; var py = 0f; var moved = false
+            override fun onTouch(v: View, e: MotionEvent): Boolean {
+                when (e.action) {
+                    MotionEvent.ACTION_DOWN -> {
+                        sx = lp.x; sy = lp.y; px = e.rawX; py = e.rawY; moved = false
+                        v.setOnLongClickListener { stopSelf(); true }
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        val nx = sx + (e.rawX - px).toInt(); val ny = sy + (e.rawY - py).toInt()
+                        if (Math.abs(nx - sx) > 14 || Math.abs(ny - sy) > 14) moved = true
+                        lp.x = nx; lp.y = ny
+                        try { wm.updateViewLayout(v, lp) } catch (_: Throwable) {}
+                    }
+                    MotionEvent.ACTION_UP -> { if (!moved) restorePanel() }
+                }
+                return false  // let long-click fire
+            }
+        })
+        try { wm.addView(b, lp); bubble = b } catch (_: Throwable) {}
+    }
+
+    private fun restorePanel() {
+        try { bubble?.let { wm.removeView(it) } } catch (_: Throwable) {}
+        bubble = null
+        if (panel == null) showPanel()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -102,7 +149,7 @@ class OverlayService : Service() {
             } else {
                 GestureRecorder.start()
                 addRecLayer()
-                setStatus("recording… touch the screen")
+                setStatus("recording… touches pass through (re-dispatched live)")
             }
         }
 
@@ -133,7 +180,7 @@ class OverlayService : Service() {
             AnchorStore.anchor = null; setStatus("anchor cleared (absolute replay)")
         }
 
-        v.findViewById<View>(R.id.ov_close).setOnClickListener { stopSelf() }
+        v.findViewById<View>(R.id.ov_close).setOnClickListener { collapseToBubble() }
 
         try { wm.addView(v, lp) } catch (t: Throwable) {
             Toast.makeText(this, "Overlay failed: ${t.javaClass.simpleName}", Toast.LENGTH_LONG).show()
@@ -154,21 +201,43 @@ class OverlayService : Service() {
             setPadding(24, 12, 0, 0); background = null
         }
         val layer = object : FrameLayout(this) {
+            // Re-dispatch state: mirror the live finger to the app underneath while recording.
+            private var dX = 0f; private var dY = 0f; private var dT0 = 0L
+            private val path = android.graphics.Path()
+
             override fun onTouchEvent(e: MotionEvent): Boolean {
                 GestureRecorder.onEvent(e)
-                // NOT_TOUCH_MODAL means touches pass through to apps outside this window;
-                // this window itself still receives the stream for recording.
-                return false
+                // Live re-dispatch: without this, a full-screen window swallows every touch.
+                // We rebuild the touch as an accessibility gesture so the game still responds.
+                val svc = AutoClickAccessibilityService.instance
+                when (e.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        dX = e.x; dY = e.y; dT0 = e.eventTime
+                        path.reset(); path.moveTo(e.x, e.y)
+                    }
+                    MotionEvent.ACTION_MOVE -> path.lineTo(e.x, e.y)
+                    MotionEvent.ACTION_UP -> {
+                        path.lineTo(e.x, e.y)
+                        val dur = (e.eventTime - dT0).coerceIn(1L, 59000L)
+                        svc?.dispatch(
+                            android.accessibilityservice.GestureDescription.Builder()
+                                .addStroke(android.accessibilityservice.GestureDescription
+                                    .StrokeDescription(path, 0L, dur)).build())
+                    }
+                }
+                return true   // we consume the raw touch; the re-dispatched copy drives the app
             }
         }
         layer.addView(tv)
         val lp = WindowManager.LayoutParams(-1, -1,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT)
         try { wm.addView(layer, lp); recLayer = layer } catch (_: Throwable) {}
+        if (AutoClickAccessibilityService.instance == null) {
+            setStatus("REC layer on but accessibility OFF — touches will be blocked!")
+        }
         dot // (kept for future visual indicator)
     }
 
