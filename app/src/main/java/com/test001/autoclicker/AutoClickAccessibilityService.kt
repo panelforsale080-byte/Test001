@@ -33,4 +33,9 @@ class AutoClickAccessibilityService : AccessibilityService() {
     /** Thin wrapper so callers don't touch dispatchGesture directly. */
     fun dispatch(gd: GestureDescription, cb: GestureResultCallback? = null): Boolean =
         try { dispatchGesture(gd, cb, null) } catch (_: Throwable) { false }
+
+    /** Dispatch with callback guaranteed on the main thread (needed to flip overlay flags). */
+    fun dispatchOnMain(gd: GestureDescription, cb: GestureResultCallback): Boolean =
+        try { dispatchGesture(gd, cb, android.os.Handler(android.os.Looper.getMainLooper())) }
+        catch (_: Throwable) { false }
 }

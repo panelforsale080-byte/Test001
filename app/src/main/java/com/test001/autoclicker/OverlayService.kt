@@ -37,6 +37,8 @@ class OverlayService : Service() {
     private var panel: View? = null
     private var bubble: View? = null
     private var recLayer: View? = null
+    private var recLp: WindowManager.LayoutParams? = null
+    @Volatile private var injecting = false
     private var lastGesture: Gesture? = null
     private var status: TextView? = null
 
@@ -201,31 +203,21 @@ class OverlayService : Service() {
             setPadding(24, 12, 0, 0); background = null
         }
         val layer = object : FrameLayout(this) {
-            // Re-dispatch state: mirror the live finger to the app underneath while recording.
-            private var dX = 0f; private var dY = 0f; private var dT0 = 0L
+            private var dT0 = 0L
             private val path = android.graphics.Path()
 
             override fun onTouchEvent(e: MotionEvent): Boolean {
+                if (injecting) return true   // swallow leftovers while mirror is replaying
                 GestureRecorder.onEvent(e)
-                // Live re-dispatch: without this, a full-screen window swallows every touch.
-                // We rebuild the touch as an accessibility gesture so the game still responds.
-                val svc = AutoClickAccessibilityService.instance
                 when (e.actionMasked) {
-                    MotionEvent.ACTION_DOWN -> {
-                        dX = e.x; dY = e.y; dT0 = e.eventTime
-                        path.reset(); path.moveTo(e.x, e.y)
-                    }
+                    MotionEvent.ACTION_DOWN -> { dT0 = e.eventTime; path.reset(); path.moveTo(e.x, e.y) }
                     MotionEvent.ACTION_MOVE -> path.lineTo(e.x, e.y)
                     MotionEvent.ACTION_UP -> {
                         path.lineTo(e.x, e.y)
-                        val dur = (e.eventTime - dT0).coerceIn(1L, 59000L)
-                        svc?.dispatch(
-                            android.accessibilityservice.GestureDescription.Builder()
-                                .addStroke(android.accessibilityservice.GestureDescription
-                                    .StrokeDescription(path, 0L, dur)).build())
+                        mirrorToGame(path, (e.eventTime - dT0).coerceIn(1L, 59000L))
                     }
                 }
-                return true   // we consume the raw touch; the re-dispatched copy drives the app
+                return true
             }
         }
         layer.addView(tv)
@@ -234,11 +226,47 @@ class OverlayService : Service() {
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT)
+        recLp = lp
         try { wm.addView(layer, lp); recLayer = layer } catch (_: Throwable) {}
         if (AutoClickAccessibilityService.instance == null) {
             setStatus("REC layer on but accessibility OFF — touches will be blocked!")
         }
         dot // (kept for future visual indicator)
+    }
+
+    /**
+     * Replay the just-recorded touch into the app below. KEY: while the mirror gesture
+     * runs, the recording layer flips to NOT_TOUCHABLE — otherwise the injected gesture
+     * lands on OUR OWN overlay (topmost window) and the game never receives it.
+     * That was the "can't touch anything" bug.
+     */
+    private fun mirrorToGame(path: android.graphics.Path, dur: Long) {
+        val svc = AutoClickAccessibilityService.instance ?: return
+        val layer = recLayer ?: return
+        val lp = recLp ?: return
+        injecting = true
+        lp.flags = lp.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+        try { wm.updateViewLayout(layer, lp) } catch (_: Throwable) {}
+        val gd = android.accessibilityservice.GestureDescription.Builder()
+            .addStroke(android.accessibilityservice.GestureDescription.StrokeDescription(path, 0L, dur))
+            .build()
+        val done = object : android.accessibilityservice.AccessibilityService.GestureResultCallback() {
+            private fun restore() {
+                injecting = false
+                val l = recLayer ?: return
+                val p = recLp ?: return
+                p.flags = p.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+                try { wm.updateViewLayout(l, p) } catch (_: Throwable) {}
+            }
+            override fun onCompleted(gestureDescription: android.accessibilityservice.GestureDescription?) { restore() }
+            override fun onCancelled(gestureDescription: android.accessibilityservice.GestureDescription?) { restore() }
+        }
+        if (!svc.dispatchOnMain(gd, done)) {
+            injecting = false
+            lp.flags = lp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+            try { wm.updateViewLayout(layer, lp) } catch (_: Throwable) {}
+            setStatus("inject failed — ROM may block a11y gestures")
+        }
     }
 
     private fun removeRecLayer() {
