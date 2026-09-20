@@ -40,6 +40,17 @@
         android:textColor="#7AE582"
         android:textSize="12sp"/>
 
+    <TextView
+        android:id="@+id/ov_saved"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:background="#22FFFFFF"
+        android:padding="8dp"
+        android:text="saved: (none — pick)"
+        android:textColor="#FFD54F"
+        android:textSize="12sp"/>
+
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"

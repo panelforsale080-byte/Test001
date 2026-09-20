@@ -68,5 +68,12 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:text="Saved Gestures"/>
+
+        <Button
+            android:id="@+id/btn_open_panel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Open Panel (if closed)"/>
     </LinearLayout>
 </ScrollView>

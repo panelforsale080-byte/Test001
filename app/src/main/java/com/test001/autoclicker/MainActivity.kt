@@ -40,6 +40,12 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btn_saved).setOnClickListener {
             startActivity(Intent(this, SavedGesturesActivity::class.java))
         }
+        findViewById<Button>(R.id.btn_open_panel).setOnClickListener {
+            // restart the service → panel re-appears even after ✖-stop
+            try { stopService(Intent(this, OverlayService::class.java)) } catch (_: Throwable) {}
+            val i = Intent(this, OverlayService::class.java)
+            if (Build.VERSION.SDK_INT >= 26) startForegroundService(i) else startService(i)
+        }
 
         requestNotificationPermissionIfNeeded()
     }

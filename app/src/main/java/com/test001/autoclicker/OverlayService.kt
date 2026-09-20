@@ -39,6 +39,8 @@ class OverlayService : Service() {
     private var recLayer: View? = null
     private var recLp: WindowManager.LayoutParams? = null
     @Volatile private var injecting = false
+    private var panelRect = android.graphics.Rect()
+    private val prefs by lazy { getSharedPreferences("test001", MODE_PRIVATE) }
     private var lastGesture: Gesture? = null
     private var status: TextView? = null
 
@@ -125,6 +127,27 @@ class OverlayService : Service() {
         ).apply { gravity = Gravity.TOP or Gravity.START; x = 40; y = 120 }
 
         status = v.findViewById(R.id.ov_status)
+        val savedLabel = v.findViewById<TextView>(R.id.ov_saved)
+        fun refreshSavedLabel() {
+            val cur = prefs.getString("sel", null)
+            savedLabel.text = "saved: ${cur ?: "(none — pick)"}"
+        }
+        refreshSavedLabel()
+        savedLabel.setOnClickListener {
+            val files = GestureStorage.list(this)
+            if (files.isEmpty()) { setStatus("no saved gestures yet"); return@setOnClickListener }
+            val names = files.map { it.nameWithoutExtension }.toTypedArray()
+            android.app.AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
+                .setTitle("Pick saved gesture")
+                .setItems(names) { d, i ->
+                    prefs.edit().putString("sel", names[i]).apply()
+                    refreshSavedLabel()
+                    setStatus("selected ${names[i]}")
+                    d.dismiss()
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
         val loopsEt = v.findViewById<EditText>(R.id.ov_loops)
         val speedEt = v.findViewById<EditText>(R.id.ov_speed)
 
@@ -137,6 +160,8 @@ class OverlayService : Service() {
                     MotionEvent.ACTION_MOVE -> {
                         lp.x = sx + (e.rawX - px).toInt(); lp.y = sy + (e.rawY - py).toInt()
                         try { wm.updateViewLayout(v, lp) } catch (_: Throwable) {}
+                        val loc = IntArray(2); v.getLocationOnScreen(loc)
+                        panelRect.set(loc[0], loc[1], loc[0] + v.width, loc[1] + v.height)
                     }
                 }
                 return true
@@ -156,8 +181,12 @@ class OverlayService : Service() {
         }
 
         v.findViewById<View>(R.id.ov_play).setOnClickListener {
-            val g = lastGesture
-            if (g == null) { setStatus("nothing recorded"); return@setOnClickListener }
+            val selName = prefs.getString("sel", null)
+            val g = selName?.let { n ->
+                GestureStorage.list(this).firstOrNull { it.nameWithoutExtension == n }
+                    ?.let { GestureStorage.load(it) }
+            } ?: lastGesture
+            if (g == null) { setStatus("record or pick a saved gesture first"); return@setOnClickListener }
             val loops = loopsEt.text.toString().toIntOrNull() ?: 1
             val speed = speedEt.text.toString().toFloatOrNull()?.coerceIn(0.25f, 4f) ?: 1f
             GesturePlayer.play(g, AnchorStore.anchor, loops, speed) { s -> setStatus(s) }
@@ -171,7 +200,9 @@ class OverlayService : Service() {
             val g = lastGesture
             if (g == null) { setStatus("nothing to save"); return@setOnClickListener }
             val f = GestureStorage.save(this, g)
+            prefs.edit().putString("sel", f.nameWithoutExtension).apply()
             setStatus("saved ${f.name}")
+            savedLabel.text = "saved: ${f.nameWithoutExtension}"
         }
 
         v.findViewById<View>(R.id.ov_anchor).setOnClickListener {
@@ -188,6 +219,10 @@ class OverlayService : Service() {
             Toast.makeText(this, "Overlay failed: ${t.javaClass.simpleName}", Toast.LENGTH_LONG).show()
         }
         panel = v
+        v.post {
+            val loc = IntArray(2); v.getLocationOnScreen(loc)
+            panelRect.set(loc[0], loc[1], loc[0] + v.width, loc[1] + v.height)
+        }
         setStatus("ready")
     }
 
@@ -208,6 +243,7 @@ class OverlayService : Service() {
 
             override fun onTouchEvent(e: MotionEvent): Boolean {
                 if (injecting) return true   // swallow leftovers while mirror is replaying
+                if (panelRect.contains(e.rawX.toInt(), e.rawY.toInt())) return false  // panel taps aren't part of the gesture
                 GestureRecorder.onEvent(e)
                 when (e.actionMasked) {
                     MotionEvent.ACTION_DOWN -> { dT0 = e.eventTime; path.reset(); path.moveTo(e.x, e.y) }
