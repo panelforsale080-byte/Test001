@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#0F1014"
+    android:padding="20dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/app_name"
+            android:textColor="#FFFFFF"
+            android:textSize="24sp"
+            android:textStyle="bold"/>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Smart auto-clicker: record gestures, replay them anywhere with relative anchoring."
+            android:textColor="#A9A9B7"/>
+
+        <TextView
+            android:id="@+id/status_overlay"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="Overlay: ❌"
+            android:textColor="#FFD54F"
+            android:textSize="16sp"/>
+        <Button
+            android:id="@+id/btn_overlay"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Enable Overlay Permission"/>
+
+        <TextView
+            android:id="@+id/status_a11y"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="Accessibility: ❌"
+            android:textColor="#FFD54F"
+            android:textSize="16sp"/>
+        <Button
+            android:id="@+id/btn_a11y"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Enable Accessibility Service"/>
+
+        <Button
+            android:id="@+id/btn_start_panel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:backgroundTint="#22A05A"
+            android:text="Start Floating Panel"
+            android:textColor="#FFFFFF"/>
+
+        <Button
+            android:id="@+id/btn_saved"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Saved Gestures"/>
+    </LinearLayout>
+</ScrollView>
