@@ -41,6 +41,7 @@ class OverlayService : Service() {
     @Volatile private var injecting = false
     private var panelRect = android.graphics.Rect()
     private var bubbleRect = android.graphics.Rect()
+    private var recLayerCollapsed = false
     private val prefs by lazy { getSharedPreferences("test001", MODE_PRIVATE) }
     private var lastGesture: Gesture? = null
     private var status: TextView? = null
@@ -178,6 +179,18 @@ class OverlayService : Service() {
         val loopsEt = v.findViewById<EditText>(R.id.ov_loops)
         val speedEt = v.findViewById<EditText>(R.id.ov_speed)
 
+        // While the user interacts with the panel during recording, shrink the rec window
+        // so every panel button is genuinely tappable (window-level, not view-level).
+        v.setOnTouchListener { _, e ->
+            if (GestureRecorder.recording) {
+                when (e.action) {
+                    MotionEvent.ACTION_DOWN -> collapseRecLayer()
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> expandRecLayer()
+                }
+            }
+            false
+        }
+
         // drag panel by title bar
         v.findViewById<View>(R.id.ov_title).setOnTouchListener(object : View.OnTouchListener {
             var sx = 0; var sy = 0; var px = 0f; var py = 0f
@@ -197,6 +210,7 @@ class OverlayService : Service() {
 
         v.findViewById<View>(R.id.ov_record).setOnClickListener {
             if (GestureRecorder.recording) {
+                expandRecLayer()
                 lastGesture = GestureRecorder.stop("gesture_${System.currentTimeMillis() % 100000}")
                 removeRecLayer()
                 setStatus("recorded ${lastGesture?.points?.size ?: 0} pts, ${lastGesture?.duration ?: 0}ms — Save or Play")
@@ -345,6 +359,27 @@ class OverlayService : Service() {
     private fun removeRecLayer() {
         try { recLayer?.let { wm.removeView(it) } } catch (_: Throwable) {}
         recLayer = null; recLp = null; injecting = false
+    }
+
+    /** Collapse the full-screen rec window to a thin top strip so the panel below is tappable. */
+    private fun collapseRecLayer() {
+        val l = recLayer ?: return
+        val lp = recLp ?: return
+        if (recLayerCollapsed) return
+        recLayerCollapsed = true
+        lp.height = 120
+        lp.gravity = Gravity.TOP or Gravity.START
+        try { wm.updateViewLayout(l, lp) } catch (_: Throwable) {}
+    }
+
+    /** Restore full-screen recording coverage. */
+    private fun expandRecLayer() {
+        val l = recLayer ?: return
+        val lp = recLp ?: return
+        if (!recLayerCollapsed) return
+        recLayerCollapsed = false
+        lp.height = WindowManager.LayoutParams.MATCH_PARENT
+        try { wm.updateViewLayout(l, lp) } catch (_: Throwable) {}
     }
 
     private fun setStatus(s: String) { status?.post { status?.text = s } }
