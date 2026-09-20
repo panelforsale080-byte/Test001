@@ -240,38 +240,47 @@ class OverlayService : Service() {
      * lands on OUR OWN overlay (topmost window) and the game never receives it.
      * That was the "can't touch anything" bug.
      */
+    /**
+     * Mirror the just-recorded touch into the game below.
+     * STRONGEST method: physically REMOVE the recording layer from the window stack,
+     * wait one frame so the WindowManager processes it, then dispatch the gesture.
+     * With our window gone, the injected touch can only land on the game underneath.
+     * Re-add the layer when the gesture completes so recording continues.
+     */
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
     private fun mirrorToGame(path: android.graphics.Path, dur: Long) {
         val svc = AutoClickAccessibilityService.instance ?: return
         val layer = recLayer ?: return
         val lp = recLp ?: return
         injecting = true
-        lp.flags = lp.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
-        try { wm.updateViewLayout(layer, lp) } catch (_: Throwable) {}
+        try { wm.removeViewImmediate(layer) } catch (_: Throwable) {}
         val gd = android.accessibilityservice.GestureDescription.Builder()
             .addStroke(android.accessibilityservice.GestureDescription.StrokeDescription(path, 0L, dur))
             .build()
         val done = object : android.accessibilityservice.AccessibilityService.GestureResultCallback() {
             private fun restore() {
                 injecting = false
-                val l = recLayer ?: return
-                val p = recLp ?: return
-                p.flags = p.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
-                try { wm.updateViewLayout(l, p) } catch (_: Throwable) {}
+                if (recLayer != null) {
+                    try { wm.addView(layer, lp) } catch (_: Throwable) {}
+                }
             }
             override fun onCompleted(gestureDescription: android.accessibilityservice.GestureDescription?) { restore() }
             override fun onCancelled(gestureDescription: android.accessibilityservice.GestureDescription?) { restore() }
         }
-        if (!svc.dispatchOnMain(gd, done)) {
-            injecting = false
-            lp.flags = lp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
-            try { wm.updateViewLayout(layer, lp) } catch (_: Throwable) {}
-            setStatus("inject failed — ROM may block a11y gestures")
-        }
+        // One-frame delay (50ms) so the layer removal is fully processed before injecting.
+        mainHandler.postDelayed({
+            if (!svc.dispatchOnMain(gd, done)) {
+                injecting = false
+                if (recLayer != null) try { wm.addView(layer, lp) } catch (_: Throwable) {}
+                setStatus("inject failed — ROM may block a11y gestures")
+            }
+        }, 50)
     }
 
     private fun removeRecLayer() {
         try { recLayer?.let { wm.removeView(it) } } catch (_: Throwable) {}
-        recLayer = null
+        recLayer = null; recLp = null; injecting = false
     }
 
     private fun setStatus(s: String) { status?.post { status?.text = s } }
