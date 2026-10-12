@@ -90,11 +90,16 @@ object TextWatcher {
     /** Triggered by the panel once the user has pressed 🔍 START; starts the camera loop. */
     fun ensureProjection(ctx: Context) {
         if (projection != null) { startCameraLoop(); return }
+        val handler = h ?: return
         ask(ctx)
         // poll for the grant, then start
-        h?.postDelayed(object : Runnable {
+        handler.postDelayed(object : Runnable {
             override fun run() {
-                val grant = ProjectionGrant.consume() ?: return h?.postDelayed(this, 250) ?: Unit
+                val grant = ProjectionGrant.consume()
+                if (grant == null) {
+                    handler.postDelayed(this, 250)
+                    return
+                }
                 try {
                     val mpm = ctx.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
                     projection = mpm.getMediaProjection(grant.first, grant.second)
