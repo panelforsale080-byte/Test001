@@ -82,7 +82,7 @@ object TextWatcher {
     }
 
     /** Called by the floating panel button — sets the keyword live. */
-    fun setKeyword(s: String) {
+    fun updateKeyword(s: String) {
         keyword = s.trim()
         Log.i(TAG, "keyword set: '$keyword'")
     }

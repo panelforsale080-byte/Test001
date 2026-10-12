@@ -262,13 +262,13 @@ class OverlayService : Service() {
             makeFocusable(has)
             if (has) imm.showSoftInput(keywordEt, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
         }
-        TextWatcher.setKeyword(keywordEt.text?.toString().orEmpty().ifEmpty { "OK" })
+        TextWatcher.updateKeyword(keywordEt.text?.toString().orEmpty().ifEmpty { "OK" })
 
         v.findViewById<EditText>(R.id.ov_keyword).addTextChangedListener(object : android.text.TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
             override fun afterTextChanged(s: android.text.Editable?) {
-                TextWatcher.setKeyword(s?.toString().orEmpty())
+                TextWatcher.updateKeyword(s?.toString().orEmpty())
             }
         })
 
