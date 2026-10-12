@@ -256,6 +256,38 @@ class OverlayService : Service() {
 
         v.findViewById<View>(R.id.ov_close).setOnClickListener { collapseToBubble() }
 
+        val keywordEt = v.findViewById<EditText>(R.id.ov_keyword)
+        keywordEt.onFocusChangeListener = focusWatcher
+        keywordEt.setOnFocusChangeListener { _, has ->
+            makeFocusable(has)
+            if (has) imm.showSoftInput(keywordEt, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+        }
+        TextWatcher.setKeyword(keywordEt.text?.toString().orEmpty().ifEmpty { "OK" })
+
+        v.findViewById<EditText>(R.id.ov_keyword).addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) {
+                TextWatcher.setKeyword(s?.toString().orEmpty())
+            }
+        })
+
+        v.findViewById<View>(R.id.ov_grant).setOnClickListener {
+            setStatus("grant screen capture (one-time)...")
+            TextWatcher.ask(this)
+        }
+
+        v.findViewById<View>(R.id.ov_watch).setOnClickListener {
+            if (TextWatcher.running) {
+                TextWatcher.stop()
+                setStatus("auto-click OFF")
+            } else {
+                TextWatcher.start(this)
+                TextWatcher.ensureProjection(this)
+                setStatus("auto-click ON — keyword='${TextWatcher.keyword}'")
+            }
+        }
+
         try { wm.addView(v, lp) } catch (t: Throwable) {
             Toast.makeText(this, "Overlay failed: ${t.javaClass.simpleName}", Toast.LENGTH_LONG).show()
         }

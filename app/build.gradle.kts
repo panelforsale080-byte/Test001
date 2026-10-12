@@ -25,6 +25,10 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
+
+    buildFeatures {
+        viewBinding = true
+    }
 }
 
 dependencies {
@@ -32,4 +36,7 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("com.google.android.material:material:1.11.0")
     implementation("androidx.recyclerview:recyclerview:1.3.2")
+    implementation("androidx.activity:activity-ktx:1.8.2")
+    // On-device text recognition — restored from AutoJoystick c7c8bee.
+    implementation("com.google.mlkit:text-recognition:16.0.0")
 }
